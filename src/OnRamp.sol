@@ -86,9 +86,7 @@ contract OnRamp is IOnRampClient, Ownable {
         uint256 feeTokenAmount,
         address originalSender
     ) external override returns (bytes32 messageId) {
-        if (s_senderNonce[originalSender] == 0) {
-            s_senderNonce[originalSender] = getSenderNonce(originalSender) + 1;
-        }
+        s_senderNonce[originalSender] = getSenderNonce(originalSender) + 1;
         messageId = keccak256(
             abi.encode(
                 destChainSelector,
