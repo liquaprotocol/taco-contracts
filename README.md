@@ -4,6 +4,4 @@
 
 ### mantle
 
-- WMNT:0x0C0B89F038eC1470A4FB7d25Bf69083Ad4Fbde3c
-- OnRamp:0x6B549ea5924486d0a35C891bB0D0c8bd19bb6b86
-- OffRamp:0xB55511C9A35343825f971574Ed4E2ea6224Ed891
+[mantle deployment](./script/config/mantle.json)
