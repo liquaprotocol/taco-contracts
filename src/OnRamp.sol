@@ -43,7 +43,7 @@ contract OnRamp is IOnRampClient, Ownable {
 
     EnumerableMapAddresses.AddressToAddressMap private s_poolsBySourceToken;
 
-    constructor(Client.PoolUpdate[] memory tokensAndPools) Ownable(msg.sender) {
+    constructor(Client.PoolUpdate[] memory tokensAndPools) Ownable() {
         _applyPoolUpdates(new Client.PoolUpdate[](0), tokensAndPools);
     }
 

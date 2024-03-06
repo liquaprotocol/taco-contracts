@@ -36,7 +36,7 @@ contract OffRamp is IOffRamp, Ownable {
 
   mapping(bytes32 => bool) public processedMessages;
 
-    constructor() Ownable(msg.sender) {}
+    constructor() Ownable() {}
 
     function getSenderNonce(address sender)
         external

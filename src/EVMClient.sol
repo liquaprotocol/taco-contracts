@@ -21,7 +21,7 @@ contract EVMClient is Receiver, Ownable {
   IERC20 public s_feeToken;
   mapping(uint64 destChainSelector => bytes extraArgsBytes) public s_chains;
 
-  constructor(IRouterClient router, address feeToken) Receiver(address(router)) Ownable(msg.sender) {
+  constructor(IRouterClient router, address feeToken) Receiver(address(router)) Ownable() {
     if (feeToken != address(0)) {
       s_feeToken = IERC20(feeToken);
       s_feeToken.approve(address(router), type(uint256).max);

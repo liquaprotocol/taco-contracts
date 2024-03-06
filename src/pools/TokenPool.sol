@@ -54,7 +54,7 @@ abstract contract TokenPool is IPool, IERC165, Ownable {
   /// @dev A set of allowed offRamps.
   EnumerableSet.AddressSet internal s_offRamps;
 
-  constructor(IERC20 token, address[] memory allowlist) Ownable(msg.sender) {
+  constructor(IERC20 token, address[] memory allowlist) Ownable() {
     if (address(token) == address(0)) revert ZeroAddressNotAllowed();
     i_token = token;
 

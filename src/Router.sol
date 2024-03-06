@@ -47,7 +47,7 @@ contract Router is IRouter, IRouterClient, Ownable {
   
   EnumerableSet.UintSet private s_chainSelectorAndOffRamps;
 
-  constructor(address wrappedNative) Ownable(msg.sender) {
+  constructor(address wrappedNative) Ownable() {
     s_wrappedNative = wrappedNative;
   }
 
