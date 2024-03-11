@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import {IPool} from "./interfaces/IPool.sol";
 import {IOnRampClient} from "./interfaces/IOnRampClient.sol";
+import {IPriceRegistry} from "./interfaces/IPriceRegistry.sol";
 import {Client} from "./libraries/Client.sol";
 import {EnumerableMapAddresses} from "./libraries/EnumerableMapAddresses.sol";
 
@@ -15,10 +16,24 @@ contract OnRamp is IOnRampClient, Ownable {
     using SafeERC20 for IERC20;
     using EnumerableMapAddresses for EnumerableMapAddresses.AddressToAddressMap;
 
+    address internal i_priceRegsitry;
+
     /// @dev The current nonce per sender.
     /// The offramp has a corresponding s_senderNonce mapping to ensure messages
     /// are executed in the same order they are sent.
     mapping(address sender => uint64 nonce) internal s_senderNonce;
+
+    /// @dev The token transfer fee config (owner or fee admin can update)
+    mapping(address token => TokenTransferFeeConfig)
+        internal s_tokenTransferFeeConfig;
+
+    /// @dev Struct to store the fee configuration for transferred token
+    struct TokenTransferFeeConfig {
+        uint32 minFeeUSDCents; // Minimum fee to charge per token tranfer. Unit: 0.01 USD
+        uint32 maxFeeUSDCents; // Maximum fee to charge per token tranfer. Unit: 0.01 USD
+        uint16 basePoints; // Basis points charged. Unit: 0.001% = 0.1bps
+        uint32 destGasCharge; // Gas charged for the execution on the destination chain
+    }
 
     event SendRequested(
         bytes32 indexed messageId,
@@ -47,11 +62,87 @@ contract OnRamp is IOnRampClient, Ownable {
         _applyPoolUpdates(new Client.PoolUpdate[](0), tokensAndPools);
     }
 
+    function _getTokenTransferCost(
+        address feeToken,
+        uint224 feeTokenPrice,
+        Client.EVMTokenAmount memory tokenAmount
+    ) internal view returns (uint256 tokenTransferFeeUSDWei) {
+        if (!s_poolsBySourceToken.contains(tokenAmount.token))
+            revert UnsupportedToken(IERC20(tokenAmount.token));
+
+        // calculate bpsFeeUSDWei
+        uint256 bpsFeeUSDWei = 0;
+
+        TokenTransferFeeConfig
+            memory transferFeeConfig = s_tokenTransferFeeConfig[
+                tokenAmount.token
+            ];
+
+        uint224 tokenPrice = 0;
+        if (tokenAmount.token != feeToken) {
+            tokenPrice = IPriceRegistry(i_priceRegsitry).getTokenPrice(
+                tokenAmount.token
+            );
+        } else {
+            tokenPrice = feeTokenPrice;
+        }
+
+        // FIXME: Double-check the decimals
+        bpsFeeUSDWei =
+            (tokenPrice * tokenAmount.amount * transferFeeConfig.basePoints) /
+            1e18;
+
+        // Keep bps fees within [minFeeUSD, maxFeeUSD]
+        // FIXME: Double-check the decimals
+        uint256 minFeeUSDWei = uint256(transferFeeConfig.minFeeUSDCents) * 1e16;
+        uint256 maxFeeUSDWei = uint256(transferFeeConfig.maxFeeUSDCents) * 1e16;
+
+        if (bpsFeeUSDWei < minFeeUSDWei) {
+            tokenTransferFeeUSDWei = minFeeUSDWei;
+        } else if (bpsFeeUSDWei > maxFeeUSDWei) {
+            tokenTransferFeeUSDWei = maxFeeUSDWei;
+        } else {
+            tokenTransferFeeUSDWei = bpsFeeUSDWei;
+        }
+
+        return tokenTransferFeeUSDWei;
+    }
+
     function getFee(
-        uint64,
-        Client.FromEVMMessage memory
-    ) external pure override returns (uint256 fee) {
-        return 0;
+        uint64 destChainSelector,
+        Client.FromEVMMessage memory message
+    ) external view override returns (uint256 fee) {
+        // FIXME: gasLimit should be from Message
+        // Taco won't support sending messages. gasLimit will be used to speed up transfer
+        // on the destination chain.
+        uint256 gasLimit = 0;
+
+        // IPriceRegistry(i_priceRegsitry).getTokenPrice(message.feeToken);
+        // TODO: Unpack above return value to store in the feeTokenPrice
+        uint224 feeTokenPrice = 0;
+
+        // IPriceRegistry(i_priceRegsitry).getDestChainGasPrice(destChainSelector);
+        // TODO: Unpack above return value to store in the destChainGasPrice
+        uint224 destChainGasPrice = 0;
+
+        Client.EVMTokenAmount memory tokenAmount = message.tokenAmount;
+
+        // Charge the user based on basis points
+        uint256 premiumFee = _getTokenTransferCost(
+            message.feeToken,
+            feeTokenPrice,
+            tokenAmount
+        );
+
+        // FIXME: figure out destGasOverhead and tokenTransferGas
+        uint32 destGasOverhead = 0;
+        uint32 tokenTransferGas = 0;
+        uint256 executionFee = destChainGasPrice *
+            (gasLimit + destGasOverhead + tokenTransferGas);
+
+        uint256 dataAvailabilityFee = 0;
+        return
+            (premiumFee + executionFee + dataAvailabilityFee) / feeTokenPrice;
     }
 
     function getPoolBySourceToken(
