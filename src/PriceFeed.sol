@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.0;
 
-import {IPriceRegistry} from "./interfaces/IPriceRegistry.sol";
+import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 import {TokenPrice} from "./libraries/TokenPrice.sol";
 
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-/// @notice The PriceRegistry contract will store the current token price in USD
+/// @notice The PriceFeed contract will store the current token price in USD
 /// and the gas price in USD for a given destination chain.abi
-contract PriceRegistry is IPriceRegistry, Ownable {
+contract PriceFeed is IPriceFeed, Ownable {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     event PriceProviderAdd(address indexed priceProvider);
@@ -43,6 +43,7 @@ contract PriceRegistry is IPriceRegistry, Ownable {
         // _updateTokens(tokens, new address[](0));
     }
 
+
     function _updatePriceProvders(
         address[] memory priceProvidersToAdd,
         address[] memory priceProvidersToRemove
@@ -59,16 +60,16 @@ contract PriceRegistry is IPriceRegistry, Ownable {
         }
     }
 
-    // function _updateTokens(
-    //     address[] memory tokensToAdd,
-    //     address[] memory tokensToRemove
-    // ) private {
-    //     for (uint256 i = 0; i < tokensToAdd.length; ++i) {
-    //         if ()
-    //     }
+    function _updateTokens(
+        address[] memory tokensToAdd,
+        address[] memory tokensToRemove
+    ) private {
+        for (uint256 i = 0; i < tokensToAdd.length; ++i) {
+            if ()
+        }
 
-    //     for (uint256 i = 0; i < tokensToRemove.length; ++i) {}
-    // }
+        for (uint256 i = 0; i < tokensToRemove.length; ++i) {}
+    }
 
     function getTokenPrice(
         address token
