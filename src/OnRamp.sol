@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import {IPool} from "./interfaces/IPool.sol";
 import {IOnRampClient} from "./interfaces/IOnRampClient.sol";
-import {IPriceRegistry} from "./interfaces/IPriceRegistry.sol";
+import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 import {Client} from "./libraries/Client.sol";
 import {EnumerableMapAddresses} from "./libraries/EnumerableMapAddresses.sol";
 
@@ -16,7 +16,13 @@ contract OnRamp is IOnRampClient, Ownable {
     using SafeERC20 for IERC20;
     using EnumerableMapAddresses for EnumerableMapAddresses.AddressToAddressMap;
 
+
+    uint256 public constant MESSAGE_FIXED_BYTES = 32 * 17;
+    uint256 public constant MESSAGE_FIXED_BYTES_PER_TOKEN = 32 * 4;
+
     address internal i_priceRegsitry;
+
+    uint32 internal i_destGasOverhead = 100000;
 
     /// @dev The current nonce per sender.
     /// The offramp has a corresponding s_senderNonce mapping to ensure messages
@@ -34,6 +40,14 @@ contract OnRamp is IOnRampClient, Ownable {
         uint16 basePoints; // Basis points charged. Unit: 0.001% = 0.1bps
         uint32 destGasCharge; // Gas charged for the execution on the destination chain
     }
+
+    struct DataAvailabilityConfig {
+        uint32 destGasPerDataAvailabilityByte; // Gas charged for the data availability on the destination chain
+        uint32 destDataAvailabilityOverheadGas; // Overhead gas charged for the data availability on the destination chain
+        uint16 destDataAvailabilityMultiplierBps; // Multiplier for the data availability cost
+    }
+
+    DataAvailabilityConfig internal s_dynamicConfig;
 
     event SendRequested(
         bytes32 indexed messageId,
@@ -58,8 +72,9 @@ contract OnRamp is IOnRampClient, Ownable {
 
     EnumerableMapAddresses.AddressToAddressMap private s_poolsBySourceToken;
 
-    constructor(Client.PoolUpdate[] memory tokensAndPools) Ownable(msg.sender) {
+    constructor(Client.PoolUpdate[] memory tokensAndPools, address _priceRegsitry) Ownable(msg.sender) {
         _applyPoolUpdates(new Client.PoolUpdate[](0), tokensAndPools);
+        i_priceRegsitry = _priceRegsitry;
     }
 
     function _getTokenTransferCost(
@@ -80,50 +95,70 @@ contract OnRamp is IOnRampClient, Ownable {
 
         uint224 tokenPrice = 0;
         if (tokenAmount.token != feeToken) {
-            tokenPrice = IPriceRegistry(i_priceRegsitry).getTokenPrice(
+            tokenPrice = IPriceFeed(i_priceRegsitry).getTokenPrice(
                 tokenAmount.token
-            );
+            ).value;
         } else {
             tokenPrice = feeTokenPrice;
         }
 
-        // FIXME: Double-check the decimals
         bpsFeeUSDWei =
             (tokenPrice * tokenAmount.amount * transferFeeConfig.basePoints) /
-            1e18;
+            1e23;
 
-        // Keep bps fees within [minFeeUSD, maxFeeUSD]
-        // FIXME: Double-check the decimals
         uint256 minFeeUSDWei = uint256(transferFeeConfig.minFeeUSDCents) * 1e16;
         uint256 maxFeeUSDWei = uint256(transferFeeConfig.maxFeeUSDCents) * 1e16;
 
         if (bpsFeeUSDWei < minFeeUSDWei) {
-            tokenTransferFeeUSDWei = minFeeUSDWei;
+            return minFeeUSDWei;
         } else if (bpsFeeUSDWei > maxFeeUSDWei) {
-            tokenTransferFeeUSDWei = maxFeeUSDWei;
-        } else {
-            tokenTransferFeeUSDWei = bpsFeeUSDWei;
+            return maxFeeUSDWei;
         }
 
-        return tokenTransferFeeUSDWei;
+        return bpsFeeUSDWei;
     }
+
+    /// @notice Returns the estimated data availability cost of the message.
+  /// @dev To save on gas, we use a single destGasPerDataAvailabilityByte value for both zero and non-zero bytes.
+  /// @param dataAvailabilityGasPrice USD per data availability gas in 18 decimals.
+  /// @param messageDataLength length of the data field in the message.
+  /// @param tokenTransferBytesOverhead additional token transfer data passed to destination, e.g. USDC attestation.
+  /// @return dataAvailabilityCostUSD36Decimal total data availability cost in USD with 36 decimals.
+  function _getDataAvailabilityCost(
+    uint112 dataAvailabilityGasPrice,
+    uint256 messageDataLength,
+    uint32 tokenTransferBytesOverhead
+  ) internal view returns (uint256 dataAvailabilityCostUSD36Decimal) {
+    // dataAvailabilityLengthBytes sums up byte lengths of fixed message fields and dynamic message fields.
+    // Fixed message fields do account for the offset and length slot of the dynamic fields.
+    uint256 dataAvailabilityLengthBytes = MESSAGE_FIXED_BYTES +
+      messageDataLength +
+      MESSAGE_FIXED_BYTES_PER_TOKEN +
+      tokenTransferBytesOverhead;
+
+    // destDataAvailabilityOverheadGas is a separate config value for flexibility to be updated independently of message cost.
+    // Its value is determined by CCIP lane implementation, e.g. the overhead data posted for OCR.
+    uint256 dataAvailabilityGas = (dataAvailabilityLengthBytes * s_dynamicConfig.destGasPerDataAvailabilityByte) +
+      s_dynamicConfig.destDataAvailabilityOverheadGas;
+
+    // dataAvailabilityGasPrice is in 18 decimals, destDataAvailabilityMultiplierBps is in 4 decimals
+    // We pad 14 decimals to bring the result to 36 decimals, in line with token bps and execution fee.
+    return
+      ((dataAvailabilityGas * dataAvailabilityGasPrice) * s_dynamicConfig.destDataAvailabilityMultiplierBps) * 1e14;
+  }
 
     function getFee(
         uint64 destChainSelector,
         Client.FromEVMMessage memory message
     ) external view override returns (uint256 fee) {
-        // FIXME: gasLimit should be from Message
-        // Taco won't support sending messages. gasLimit will be used to speed up transfer
-        // on the destination chain.
-        uint256 gasLimit = 0;
 
-        // IPriceRegistry(i_priceRegsitry).getTokenPrice(message.feeToken);
-        // TODO: Unpack above return value to store in the feeTokenPrice
-        uint224 feeTokenPrice = 0;
+        require(s_poolsBySourceToken.contains(message.tokenAmount.token), "Unsupported token");
+        require(block.timestamp + 1 days >= IPriceFeed(i_priceRegsitry).getTokenPrice(message.feeToken).timestamp, "Price not available");
+        require(block.timestamp + 1 days >= IPriceFeed(i_priceRegsitry).getDestChainGasPrice(destChainSelector).timestamp, "Price not available");
 
-        // IPriceRegistry(i_priceRegsitry).getDestChainGasPrice(destChainSelector);
-        // TODO: Unpack above return value to store in the destChainGasPrice
-        uint224 destChainGasPrice = 0;
+        uint224 feeTokenPrice = IPriceFeed(i_priceRegsitry).getTokenPrice(message.feeToken).value;
+
+        uint224 destChainGasPrice = IPriceFeed(i_priceRegsitry).getDestChainGasPrice(destChainSelector).value;
 
         Client.EVMTokenAmount memory tokenAmount = message.tokenAmount;
 
@@ -134,11 +169,10 @@ contract OnRamp is IOnRampClient, Ownable {
             tokenAmount
         );
 
-        // FIXME: figure out destGasOverhead and tokenTransferGas
-        uint32 destGasOverhead = 0;
-        uint32 tokenTransferGas = 0;
+        uint32 destGasOverhead = i_destGasOverhead;
+        uint256 tokenTransferGas = _getTokenTransferCost(message.feeToken, feeTokenPrice, tokenAmount);
         uint256 executionFee = destChainGasPrice *
-            (gasLimit + destGasOverhead + tokenTransferGas);
+            (destGasOverhead + tokenTransferGas);
 
         uint256 dataAvailabilityFee = 0;
         return
@@ -255,5 +289,28 @@ contract OnRamp is IOnRampClient, Ownable {
                 revert PoolAlreadyAdded();
             }
         }
+    }
+
+    function setPriceFeed(address _priceRegsitry) external onlyOwner {
+        i_priceRegsitry = _priceRegsitry;
+    }
+
+    function setTokenTransferFeeConfig(
+        address token,
+        uint32 minFeeUSDCents,
+        uint32 maxFeeUSDCents,
+        uint16 basePoints,
+        uint32 destGasCharge
+    ) external onlyOwner {
+        s_tokenTransferFeeConfig[token] = TokenTransferFeeConfig({
+            minFeeUSDCents: minFeeUSDCents,
+            maxFeeUSDCents: maxFeeUSDCents,
+            basePoints: basePoints,
+            destGasCharge: destGasCharge
+        });
+    }
+
+    function setDestGasOverhead(uint32 destGasOverhead) external onlyOwner {
+        i_destGasOverhead = destGasOverhead;
     }
 }

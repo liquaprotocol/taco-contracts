@@ -40,8 +40,38 @@ contract PriceFeed is IPriceFeed, Ownable {
         address[] memory tokens
     ) Ownable(msg.sender) {
         _updatePriceProvders(priceProviders, new address[](0));
-        // _updateTokens(tokens, new address[](0));
+        _updateTokens(tokens, new address[](0));
     }
+
+    function updatePrices(
+        TokenPrice.PriceUpdates memory priceUpdates
+    ) public override onlyPriceProvider {
+        _updatePrices(priceUpdates.tokenPriceUpdates, priceUpdates.gasPriceUpdates);
+    }
+
+    function _updatePrices(
+        TokenPrice.TokenPriceUpdate[] memory tokenPriceUpdates,
+        TokenPrice.GasPriceUpdate[] memory gasPriceUpdates
+    ) private {
+        _updatePriceProvders(new address[](0), new address[](0));
+        _updateTokens(new address[](0), new address[](0));
+
+        for (uint256 i = 0; i < tokenPriceUpdates.length; ++i) {
+            s_tokenPrice[tokenPriceUpdates[i].token] = TokenPrice.TimestampedValuePacked(
+                tokenPriceUpdates[i].tokenPriceUSDWei,
+                uint32(block.timestamp)
+            );
+        }
+
+        for (uint256 i = 0; i < gasPriceUpdates.length; ++i) {
+            s_gasFeeByDestChain[gasPriceUpdates[i].destChainSelector] = TokenPrice.TimestampedValuePacked(
+                gasPriceUpdates[i].gasFeeUSDWei,
+                uint32(block.timestamp)
+            );
+        }
+    }
+
+
 
 
     function _updatePriceProvders(
@@ -60,15 +90,24 @@ contract PriceFeed is IPriceFeed, Ownable {
         }
     }
 
+    function updateTokens(
+        address[] memory tokensToAdd,
+        address[] memory tokensToRemove
+    ) public onlyOwner {
+        _updateTokens(tokensToAdd, tokensToRemove);
+    }
+
     function _updateTokens(
         address[] memory tokensToAdd,
         address[] memory tokensToRemove
     ) private {
         for (uint256 i = 0; i < tokensToAdd.length; ++i) {
-            if ()
+            s_tokenPrice[tokensToAdd[i]] = TokenPrice.TimestampedValuePacked(uint224(0), uint32(block.timestamp));
         }
 
-        for (uint256 i = 0; i < tokensToRemove.length; ++i) {}
+        for (uint256 i = 0; i < tokensToRemove.length; ++i) {
+            delete s_tokenPrice[tokensToRemove[i]];
+        }
     }
 
     function getTokenPrice(
@@ -92,5 +131,10 @@ contract PriceFeed is IPriceFeed, Ownable {
     /// @return Addresses of the price providers.
     function getPriceProviders() external view returns (address[] memory) {
         return s_priceProviders.values();
+    }
+
+    modifier onlyPriceProvider() {
+        require(s_priceProviders.contains(msg.sender), "PriceFeed: Not a price provider");
+        _;
     }
 }
