@@ -22,7 +22,7 @@ contract OnRamp is IOnRampClient, Ownable {
 
     address internal i_priceRegsitry;
 
-    uint32 internal i_destGasOverhead = 100000;
+    uint32 internal i_destGasOverhead = 400000;
 
     /// @dev The current nonce per sender.
     /// The offramp has a corresponding s_senderNonce mapping to ensure messages
@@ -118,31 +118,17 @@ contract OnRamp is IOnRampClient, Ownable {
         return bpsFeeUSDWei;
     }
 
-    /// @notice Returns the estimated data availability cost of the message.
-  /// @dev To save on gas, we use a single destGasPerDataAvailabilityByte value for both zero and non-zero bytes.
-  /// @param dataAvailabilityGasPrice USD per data availability gas in 18 decimals.
-  /// @param messageDataLength length of the data field in the message.
-  /// @param tokenTransferBytesOverhead additional token transfer data passed to destination, e.g. USDC attestation.
-  /// @return dataAvailabilityCostUSD36Decimal total data availability cost in USD with 36 decimals.
   function _getDataAvailabilityCost(
-    uint112 dataAvailabilityGasPrice,
-    uint256 messageDataLength,
+    uint224 dataAvailabilityGasPrice,
     uint32 tokenTransferBytesOverhead
   ) internal view returns (uint256 dataAvailabilityCostUSD36Decimal) {
-    // dataAvailabilityLengthBytes sums up byte lengths of fixed message fields and dynamic message fields.
-    // Fixed message fields do account for the offset and length slot of the dynamic fields.
     uint256 dataAvailabilityLengthBytes = MESSAGE_FIXED_BYTES +
-      messageDataLength +
       MESSAGE_FIXED_BYTES_PER_TOKEN +
       tokenTransferBytesOverhead;
 
-    // destDataAvailabilityOverheadGas is a separate config value for flexibility to be updated independently of message cost.
-    // Its value is determined by CCIP lane implementation, e.g. the overhead data posted for OCR.
     uint256 dataAvailabilityGas = (dataAvailabilityLengthBytes * s_dynamicConfig.destGasPerDataAvailabilityByte) +
       s_dynamicConfig.destDataAvailabilityOverheadGas;
 
-    // dataAvailabilityGasPrice is in 18 decimals, destDataAvailabilityMultiplierBps is in 4 decimals
-    // We pad 14 decimals to bring the result to 36 decimals, in line with token bps and execution fee.
     return
       ((dataAvailabilityGas * dataAvailabilityGasPrice) * s_dynamicConfig.destDataAvailabilityMultiplierBps) * 1e14;
   }
@@ -153,8 +139,8 @@ contract OnRamp is IOnRampClient, Ownable {
     ) external view override returns (uint256 fee) {
 
         require(s_poolsBySourceToken.contains(message.tokenAmount.token), "Unsupported token");
-        require(block.timestamp + 1 days >= IPriceFeed(i_priceRegsitry).getTokenPrice(message.feeToken).timestamp, "Price not available");
-        require(block.timestamp + 1 days >= IPriceFeed(i_priceRegsitry).getDestChainGasPrice(destChainSelector).timestamp, "Price not available");
+        require(block.timestamp + 10 days >= IPriceFeed(i_priceRegsitry).getTokenPrice(message.feeToken).timestamp, "Price not available");
+        require(block.timestamp + 10 days >= IPriceFeed(i_priceRegsitry).getDestChainGasPrice(destChainSelector).timestamp, "Price not available");
 
         uint224 feeTokenPrice = IPriceFeed(i_priceRegsitry).getTokenPrice(message.feeToken).value;
 
@@ -174,7 +160,10 @@ contract OnRamp is IOnRampClient, Ownable {
         uint256 executionFee = destChainGasPrice *
             (destGasOverhead + tokenTransferGas);
 
-        uint256 dataAvailabilityFee = 0;
+        uint256 dataAvailabilityFee = _getDataAvailabilityCost(
+            destChainGasPrice,
+            destGasOverhead
+        );
         return
             (premiumFee + executionFee + dataAvailabilityFee) / feeTokenPrice;
     }

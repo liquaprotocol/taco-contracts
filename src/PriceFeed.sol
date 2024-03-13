@@ -39,7 +39,7 @@ contract PriceFeed is IPriceFeed, Ownable {
         address[] memory priceProviders,
         address[] memory tokens
     ) Ownable(msg.sender) {
-        _updatePriceProvders(priceProviders, new address[](0));
+        _updatePriceProviders(priceProviders, new address[](0));
         _updateTokens(tokens, new address[](0));
     }
 
@@ -53,7 +53,6 @@ contract PriceFeed is IPriceFeed, Ownable {
         TokenPrice.TokenPriceUpdate[] memory tokenPriceUpdates,
         TokenPrice.GasPriceUpdate[] memory gasPriceUpdates
     ) private {
-        _updatePriceProvders(new address[](0), new address[](0));
         _updateTokens(new address[](0), new address[](0));
 
         for (uint256 i = 0; i < tokenPriceUpdates.length; ++i) {
@@ -72,9 +71,15 @@ contract PriceFeed is IPriceFeed, Ownable {
     }
 
 
+    function updatePriceProviders(
+        address[] memory priceProvidersToAdd,
+        address[] memory priceProvidersToRemove
+    ) public onlyOwner {
+        _updatePriceProviders(priceProvidersToAdd, priceProvidersToRemove);
+    }
 
 
-    function _updatePriceProvders(
+    function _updatePriceProviders(
         address[] memory priceProvidersToAdd,
         address[] memory priceProvidersToRemove
     ) private {

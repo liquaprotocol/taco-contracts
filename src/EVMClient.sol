@@ -29,6 +29,20 @@ contract EVMClient is Receiver, Ownable {
     
   }
 
+  function getFee(
+    uint64 destChainSelector,
+    address receiver,
+    Client.EVMTokenAmount memory tokenAmount
+  ) external view returns (uint256) {
+    Client.FromEVMMessage memory message = Client.FromEVMMessage({
+      receiver: receiver,
+      data: abi.encode(msg.sender),
+      tokenAmount: tokenAmount,
+      feeToken: address(s_feeToken)
+    });
+    return IRouterClient(i_ccipRouter).getFee(destChainSelector, message);
+  }
+
   function enableChain(uint64 chainSelector, bytes memory extraArgs) external onlyOwner {
     s_chains[chainSelector] = extraArgs;
   }
@@ -50,7 +64,7 @@ contract EVMClient is Receiver, Ownable {
     uint64 destChainSelector,
     address receiver,
     Client.EVMTokenAmount memory tokenAmount
-  ) external validChain(destChainSelector) returns (bytes32) {
+  ) external payable validChain(destChainSelector) returns (bytes32) {
     IERC20(tokenAmount.token).transferFrom(msg.sender, address(this), tokenAmount.amount);
     IERC20(tokenAmount.token).approve(i_ccipRouter, tokenAmount.amount);
     Client.FromEVMMessage memory message = Client.FromEVMMessage({
@@ -59,7 +73,9 @@ contract EVMClient is Receiver, Ownable {
       tokenAmount: tokenAmount,
       feeToken: address(s_feeToken)
     });
-    bytes32 messageId = IRouterClient(i_ccipRouter).evmSend(destChainSelector, message);
+    bytes32 messageId = IRouterClient(i_ccipRouter).evmSend{
+      value: msg.value
+    }(destChainSelector, message);
     emit MessageSent(messageId);
 
     return messageId;
