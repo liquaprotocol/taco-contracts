@@ -19,12 +19,20 @@ import {IPool} from "../src/interfaces/IPool.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+import {PriceFeed} from "../src/PriceFeed.sol";
+
+import {TokenPrice} from "../src/libraries/TokenPrice.sol";
+
 contract CrossBridgeTest is Test {
     Router public router;
     WETH9 public weth;
     EVMClient public evmClient;
     OnRamp public onRamp;
     OffRamp public offRamp;
+    PriceFeed public priceFeed;
+
+    uint256 public constant chainCount = 1;
+
 
     address public owner = 0x25044d07b6BF88a84FaC422c49f8604000248A9A;
 
@@ -50,40 +58,103 @@ contract CrossBridgeTest is Test {
 
         vm.deal(owner, 100 ether);
 
+
+        // uint64 sourceChain = uint64(block.chainid);
+
+        // destChains
+        uint64[] memory destChains = new uint64[](chainCount);
+        destChains[0] = uint64(block.chainid);
+
         weth = new WETH9();
+
+
+        // Adding the price providers
+        address[] memory priceProvidersToAdd = new address[](1);
+
+        priceProvidersToAdd[0] = address(owner);
+
+        // Adding the price feed
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(weth);
+
+        priceFeed = new PriceFeed(priceProvidersToAdd, tokens);
+
+        // Updating the prices
+        TokenPrice.TokenPriceUpdate[] memory tokenPriceUpdates = new TokenPrice.TokenPriceUpdate[](1);
+        tokenPriceUpdates[0] = TokenPrice.TokenPriceUpdate(address(weth), 5000 ether);
+        TokenPrice.GasPriceUpdate[] memory gasPriceUpdates = new TokenPrice.GasPriceUpdate[](1);
+        gasPriceUpdates[0] = TokenPrice.GasPriceUpdate(destChains[0], (5000 ether) * 10 gwei );
+
+
+        TokenPrice.PriceUpdates memory priceUpdates = TokenPrice.PriceUpdates(
+            tokenPriceUpdates,
+            gasPriceUpdates
+        );
+
+        priceFeed.updatePrices(priceUpdates);
+
+
+        // Deploying the contracts
         router = new Router(address(weth));
         evmClient = new EVMClient(router, address(0));
         TokenPool tokenPool = new LockReleaseTokenPool(IERC20(weth), allowlist, true);
-
-
-        Client.PoolUpdate[] memory poolUpdates = new Client.PoolUpdate[](1);
-        poolUpdates[0] = Client.PoolUpdate(address(weth), address(tokenPool));
-        evmClient.enableChain(uint64(block.chainid), bytes("test"));
-
-        onRamp = new OnRamp(poolUpdates);
+        onRamp = new OnRamp(new Client.PoolUpdate[](0), address(priceFeed));
         offRamp = new OffRamp();
 
-        offRamp.applyPoolUpdates(new Client.PoolUpdate[](0), poolUpdates);
+
+        // depositing the weth
+        weth.deposit{value: 10 ether}();
+
+
+
+        // Enabling the chains
+        for (uint256 i = 0; i < chainCount; i++) {
+            evmClient.enableChain(destChains[i], bytes("test"));
+        }
+        // ----------------------------
+
+
+
+        // Adding the pools
+        Client.PoolUpdate[] memory targetPoolUpdates = new Client.PoolUpdate[](1);
+        targetPoolUpdates[0] = Client.PoolUpdate(address(weth), address(tokenPool));
+
+        offRamp.applyPoolUpdates(new Client.PoolUpdate[](0), targetPoolUpdates);
         offRamp.blessDone(owner, true);
-
-        Router.OnRamp[] memory onRamps = new Router.OnRamp[](1);
-        Router.OffRamp[] memory offRamps = new Router.OffRamp[](1);
-
-        onRamps[0] = Router.OnRamp(uint64(block.chainid), address(onRamp));
-        offRamps[0] = Router.OffRamp(uint64(block.chainid), address(offRamp));
-
-        TokenPool.RampUpdate[] memory rampUpdates = new TokenPool.RampUpdate[](1);
-        TokenPool.RampUpdate[] memory rampUpdates2 = new TokenPool.RampUpdate[](1);
+        // ----------------------------
 
 
-        rampUpdates[0] = TokenPool.RampUpdate(address(onRamp), true);
-        rampUpdates2[0] = TokenPool.RampUpdate(address(offRamp), true);
+        // OnRamp pool updates
+        Client.PoolUpdate[] memory poolUpdates = new Client.PoolUpdate[](1);
+        poolUpdates[0] = Client.PoolUpdate(address(weth), address(tokenPool));
+        onRamp.applyPoolUpdates(new Client.PoolUpdate[](0), poolUpdates);
+
+
+
+        // Adding the onRamps and offRamps
+        Router.OnRamp[] memory onRamps = new Router.OnRamp[](chainCount);
+        Router.OffRamp[] memory offRamps = new Router.OffRamp[](chainCount);
+        for (uint256 i = 0; i < chainCount; i++) {
+            onRamps[i] = Router.OnRamp(destChains[i], address(onRamp));
+            offRamps[i] = Router.OffRamp(destChains[i], address(offRamp));
+        }
 
         router.applyRampUpdates(onRamps, new Router.OffRamp[](0), offRamps);
-        tokenPool.applyRampUpdates(rampUpdates, rampUpdates2);
+        // ----------------------------
 
 
-        weth.deposit{value: 10 ether}();
+
+        // Adding the token pools
+        TokenPool.RampUpdate[] memory onRampUpdates = new TokenPool.RampUpdate[](1);
+        TokenPool.RampUpdate[] memory offRampUpdates = new TokenPool.RampUpdate[](1);
+
+        onRampUpdates[0] = TokenPool.RampUpdate(address(onRamp), true);
+        offRampUpdates[0] = TokenPool.RampUpdate(address(offRamp), true);
+
+
+        tokenPool.applyRampUpdates(onRampUpdates, offRampUpdates);
+        // ----------------------------
+
 
     }
 
@@ -95,7 +166,18 @@ contract CrossBridgeTest is Test {
         Client.EVMTokenAmount memory amount = Client.EVMTokenAmount(address(weth), 1 ether);
 
         weth.approve(address(evmClient), 1 ether);
-        bytes32 messageId = evmClient.sendToken(uint64(block.chainid), owner, amount);
+
+
+        uint256 fee = evmClient.getFee(uint64(block.chainid), owner, amount);
+
+        console.log("fee", fee);
+
+
+
+        bytes32 messageId = evmClient.sendToken{value: fee}(uint64(block.chainid), owner, amount);
+
+        console.log("messageId:");
+        console.logBytes32(messageId);
 
 
         assert(weth.balanceOf(owner) == 9 ether);
@@ -132,14 +214,6 @@ contract CrossBridgeTest is Test {
 
 
         assert(weth.balanceOf(owner) == 10 ether);
-
-
-
-
-
-
-        
-
 
         // counter.increment();
         // assertEq(counter.number(), 1);
