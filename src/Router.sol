@@ -87,6 +87,19 @@ contract Router is IRouter, IRouterClient, Ownable {
     if (onRamp == address(0)) revert UnsupportedDestinationChain(destinationChainSelector);
     uint256 feeTokenAmount;
 
+    if (message.feeToken == address(0)) {
+      message.feeToken = s_wrappedNative;
+      feeTokenAmount = IOnRampClient(onRamp).getFee(destinationChainSelector, message);
+      if (msg.value < feeTokenAmount) revert InsufficientFeeTokenAmount();
+      feeTokenAmount = msg.value;
+      IWrappedNative(message.feeToken).deposit{value: feeTokenAmount}();
+      IERC20(message.feeToken).safeTransfer(onRamp, feeTokenAmount);
+    } else {
+      if (msg.value > 0) revert InvalidMsgValue();
+      feeTokenAmount = IOnRampClient(onRamp).getFee(destinationChainSelector, message);
+      IERC20(message.feeToken).safeTransferFrom(msg.sender, onRamp, feeTokenAmount);
+    }
+
     IERC20 token = IERC20(message.tokenAmount.token);
       token.safeTransferFrom(
         msg.sender,

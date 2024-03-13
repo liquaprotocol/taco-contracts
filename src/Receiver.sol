@@ -8,7 +8,7 @@ import {Client} from "./libraries/Client.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 abstract contract Receiver is IToEVMMessageReceiver, IERC165 {
-  address internal immutable i_ccipRouter;
+  address internal i_ccipRouter;
 
   constructor(address router) {
     if (router == address(0)) revert InvalidRouter(address(0));
@@ -24,6 +24,10 @@ abstract contract Receiver is IToEVMMessageReceiver, IERC165 {
 
   function getRouter() public view returns (address) {
     return address(i_ccipRouter);
+  }
+
+  function _setRouter(address router) internal {
+    i_ccipRouter = router;
   }
 
   error InvalidRouter(address router);
