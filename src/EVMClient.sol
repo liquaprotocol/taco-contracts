@@ -65,6 +65,10 @@ contract EVMClient is Receiver, Ownable {
     return messageId;
   }
 
+  function setRouter(address router) external onlyOwner {
+    _setRouter(router);
+  }
+
   modifier validChain(uint64 chainSelector) {
     if (s_chains[chainSelector].length == 0) revert InvalidChain(chainSelector);
     _;
