@@ -51,13 +51,6 @@ contract EVMClient is Receiver, Ownable {
     delete s_chains[chainSelector];
   }
 
-  function evmReceive(
-    Client.ToEVMMessage calldata message
-  ) external virtual override onlyRouter validChain(message.sourceChainSelector) {
-    emit MessageReceived(message.messageId);
-
-  }
-
   // @notice user sends tokens to a receiver
   // Approvals can be optimized with a whitelist of tokens and inf approvals if desired.
   function sendToken(

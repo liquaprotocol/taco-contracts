@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {IToEVMMessageReceiver} from "./interfaces/IToEVMMessageReceiver.sol";
 
 import {Client} from "./libraries/Client.sol";
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-abstract contract Receiver is IToEVMMessageReceiver, IERC165 {
+abstract contract Receiver is IERC165 {
   address internal i_ccipRouter;
 
   constructor(address router) {

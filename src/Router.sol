@@ -5,7 +5,6 @@ import {IRouterClient} from "./interfaces/IRouterClient.sol";
 import {IRouter} from "./interfaces/IRouter.sol";
 import {IOnRampClient} from "./interfaces/IOnRampClient.sol";
 import {IWrappedNative} from "./interfaces/IWrappedNative.sol";
-import {IToEVMMessageReceiver} from "./interfaces/IToEVMMessageReceiver.sol";
 
 import {Client} from "./libraries/Client.sol";
 
