@@ -38,5 +38,15 @@ contract Helper {
             wethTokenPool: 0x7203587fA7b3eD1e4D0098fE2D8a93298cB0c9Bd,
             priceFeed: 0xca4dF7B3fCd903315b2937422E80144181a90299
         });
+        networkInfo[5003] = TacoNetworkInfo({
+            chainId: 5003,
+            router: 0x05BD03465d4331384295D7Ee59476CE323bE56de,
+            weth: 0x7ec1A00BBB02cb03A0dfe03F54A3B08204e69487,
+            evmClient: 0x528B788e277d5dd27c164Ef40dc2748495479b4E,
+            onRamp: 0x03A7b1FbE69E9CdDF34f90BD3D89F6340ea1E8e3,
+            offRamp: 0xD8F7e52d4c7673d09aA0535d26FFc236bc82578d,
+            wethTokenPool: 0xBe663683c7D1bfb2D3904fd6889CB4A9F351CA03,
+            priceFeed: 0x24CDA3A0DFA705b6b4A8eC9A29e48369f9BB42Ff
+        });
     }
 }
