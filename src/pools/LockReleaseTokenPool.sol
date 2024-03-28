@@ -46,9 +46,10 @@ contract LockReleaseTokenPool is TokenPool, ILiquidityContainer {
     address originalSender,
     address,
     uint256 amount,
-    uint64,
+    uint64 destChainSelector,
     bytes calldata
   ) external virtual override onlyOnRamp checkAllowList(originalSender) whenHealthy returns (bytes memory) {
+    _consumeInboundRateLimit(destChainSelector, amount);
     emit Locked(msg.sender, amount);
     return "";
   }
@@ -62,9 +63,10 @@ contract LockReleaseTokenPool is TokenPool, ILiquidityContainer {
     address,
     address receiver,
     uint256 amount,
-    uint64,
+    uint64 destChainSelector,
     bytes memory
   ) external virtual override onlyOffRamp whenHealthy {
+    _consumeOutboundRateLimit(destChainSelector, amount);
     getToken().safeTransfer(receiver, amount);
     emit Released(msg.sender, receiver, amount);
   }
