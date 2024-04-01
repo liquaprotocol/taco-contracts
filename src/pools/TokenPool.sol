@@ -19,10 +19,6 @@ abstract contract TokenPool is IPool, IERC165, Ownable {
   using RateLimiter for RateLimiter.TokenBucket;
   using EnumerableSet for EnumerableSet.UintSet;
 
-
-  error NonExistentChain(uint64 remoteChainSelector);
-
-
   error PermissionsError();
   error ZeroAddressNotAllowed();
   error SenderNotAllowed(address sender);
@@ -302,7 +298,6 @@ abstract contract TokenPool is IPool, IERC165, Ownable {
     RateLimiter.Config memory outboundConfig,
     RateLimiter.Config memory inboundConfig
   ) internal {
-    if (!isSupportedChain(remoteChainSelector)) revert NonExistentChain(remoteChainSelector);
     RateLimiter._validateTokenBucketConfig(outboundConfig, false);
     s_outboundRateLimits[remoteChainSelector]._setTokenBucketConfig(outboundConfig);
     RateLimiter._validateTokenBucketConfig(inboundConfig, false);

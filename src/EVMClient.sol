@@ -11,7 +11,6 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 
 contract EVMClient is Receiver, Ownable {
-  error InvalidConfig();
   error InvalidChain(uint64 chainSelector);
 
   event MessageSent(bytes32 messageId);
@@ -19,7 +18,6 @@ contract EVMClient is Receiver, Ownable {
 
   // fee feeToken
   IERC20 public s_feeToken;
-  mapping(uint64 destChainSelector => bytes extraArgsBytes) public s_chains;
 
   constructor(IRouterClient router, address feeToken) Receiver(address(router)) Ownable(msg.sender) {
     if (feeToken != address(0)) {
@@ -43,21 +41,13 @@ contract EVMClient is Receiver, Ownable {
     return IRouterClient(i_ccipRouter).getFee(destChainSelector, message);
   }
 
-  function enableChain(uint64 chainSelector, bytes memory extraArgs) external onlyOwner {
-    s_chains[chainSelector] = extraArgs;
-  }
-
-  function disableChain(uint64 chainSelector) external onlyOwner {
-    delete s_chains[chainSelector];
-  }
-
   // @notice user sends tokens to a receiver
   // Approvals can be optimized with a whitelist of tokens and inf approvals if desired.
   function sendToken(
     uint64 destChainSelector,
     address receiver,
     Client.EVMTokenAmount memory tokenAmount
-  ) external payable validChain(destChainSelector) returns (bytes32) {
+  ) external payable returns (bytes32) {
     IERC20(tokenAmount.token).transferFrom(msg.sender, address(this), tokenAmount.amount);
     IERC20(tokenAmount.token).approve(i_ccipRouter, tokenAmount.amount);
     Client.FromEVMMessage memory message = Client.FromEVMMessage({
@@ -76,10 +66,5 @@ contract EVMClient is Receiver, Ownable {
 
   function setRouter(address router) external onlyOwner {
     _setRouter(router);
-  }
-
-  modifier validChain(uint64 chainSelector) {
-    if (s_chains[chainSelector].length == 0) revert InvalidChain(chainSelector);
-    _;
   }
 }

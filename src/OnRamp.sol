@@ -21,6 +21,7 @@ contract OnRamp is IOnRampClient, Ownable {
     uint256 public constant MESSAGE_FIXED_BYTES_PER_TOKEN = 32 * 4;
 
     address internal i_priceRegsitry;
+    address internal i_router;
 
     uint32 internal i_destGasOverhead = 400000;
 
@@ -32,6 +33,8 @@ contract OnRamp is IOnRampClient, Ownable {
     /// @dev The token transfer fee config (owner or fee admin can update)
     mapping(address token => TokenTransferFeeConfig)
         internal s_tokenTransferFeeConfig;
+
+    mapping(uint64 destChainSelector => bool enable) public isEnableChain;
 
     /// @dev Struct to store the fee configuration for transferred token
     struct TokenTransferFeeConfig {
@@ -47,7 +50,7 @@ contract OnRamp is IOnRampClient, Ownable {
         uint16 destDataAvailabilityMultiplierBps; // Multiplier for the data availability cost
     }
 
-    DataAvailabilityConfig internal s_dynamicConfig;
+    DataAvailabilityConfig internal s_dataAvailabilityConfigConfig;
 
     event SendRequested(
         bytes32 indexed messageId,
@@ -69,12 +72,15 @@ contract OnRamp is IOnRampClient, Ownable {
     error InvalidTokenPoolConfig();
     error PoolAlreadyAdded();
     error UnsupportedToken(IERC20 token);
+    error InvalidChain(uint64 chainSelector);
+    error MustBeCalledByRouter();
 
     EnumerableMapAddresses.AddressToAddressMap private s_poolsBySourceToken;
 
-    constructor(Client.PoolUpdate[] memory tokensAndPools, address _priceRegsitry) Ownable(msg.sender) {
+    constructor(Client.PoolUpdate[] memory tokensAndPools, address _priceRegsitry, address _router) Ownable(msg.sender) {
         _applyPoolUpdates(new Client.PoolUpdate[](0), tokensAndPools);
         i_priceRegsitry = _priceRegsitry;
+        i_router = _router;
     }
 
     function _getTokenTransferCost(
@@ -111,7 +117,7 @@ contract OnRamp is IOnRampClient, Ownable {
 
         if (bpsFeeUSDWei < minFeeUSDWei) {
             return minFeeUSDWei;
-        } else if (bpsFeeUSDWei > maxFeeUSDWei) {
+        } else if (maxFeeUSDWei != 0 && bpsFeeUSDWei > maxFeeUSDWei) {
             return maxFeeUSDWei;
         }
 
@@ -126,11 +132,11 @@ contract OnRamp is IOnRampClient, Ownable {
       MESSAGE_FIXED_BYTES_PER_TOKEN +
       tokenTransferBytesOverhead;
 
-    uint256 dataAvailabilityGas = (dataAvailabilityLengthBytes * s_dynamicConfig.destGasPerDataAvailabilityByte) +
-      s_dynamicConfig.destDataAvailabilityOverheadGas;
+    uint256 dataAvailabilityGas = (dataAvailabilityLengthBytes * s_dataAvailabilityConfigConfig.destGasPerDataAvailabilityByte) +
+      s_dataAvailabilityConfigConfig.destDataAvailabilityOverheadGas;
 
     return
-      ((dataAvailabilityGas * dataAvailabilityGasPrice) * s_dynamicConfig.destDataAvailabilityMultiplierBps) * 1e14;
+      ((dataAvailabilityGas * dataAvailabilityGasPrice) * s_dataAvailabilityConfigConfig.destDataAvailabilityMultiplierBps) * 1e14;
   }
 
     function getFee(
@@ -139,8 +145,6 @@ contract OnRamp is IOnRampClient, Ownable {
     ) external view override returns (uint256 fee) {
 
         require(s_poolsBySourceToken.contains(message.tokenAmount.token), "Unsupported token");
-        require(block.timestamp + 10 days >= IPriceFeed(i_priceRegsitry).getTokenPrice(message.feeToken).timestamp, "Price not available");
-        require(block.timestamp + 10 days >= IPriceFeed(i_priceRegsitry).getDestChainGasPrice(destChainSelector).timestamp, "Price not available");
 
         uint224 feeTokenPrice = IPriceFeed(i_priceRegsitry).getTokenPrice(message.feeToken).value;
 
@@ -200,9 +204,9 @@ contract OnRamp is IOnRampClient, Ownable {
         uint256 feeTokenAmount,
         address originalSender
     ) external override returns (bytes32 messageId) {
-        if (s_senderNonce[originalSender] == 0) {
-            s_senderNonce[originalSender] = getSenderNonce(originalSender) + 1;
-        }
+        if (msg.sender != i_router) revert MustBeCalledByRouter();
+
+        s_senderNonce[originalSender] = getSenderNonce(originalSender) + 1;
         messageId = keccak256(
             abi.encode(
                 destChainSelector,
@@ -301,5 +305,18 @@ contract OnRamp is IOnRampClient, Ownable {
 
     function setDestGasOverhead(uint32 destGasOverhead) external onlyOwner {
         i_destGasOverhead = destGasOverhead;
+    }
+
+    function withdrawToken(address token, address to, uint256 amount) external onlyOwner {
+        IERC20(token).safeTransfer(to, amount);
+    }
+
+    function enableChain(uint64 chainSelector, bool enable) external onlyOwner {
+        isEnableChain[chainSelector] = enable;
+    }
+
+    modifier validChain(uint64 chainSelector) {
+        if (!isEnableChain[chainSelector]) revert InvalidChain(chainSelector);
+        _;
     }
 }

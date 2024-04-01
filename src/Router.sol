@@ -13,10 +13,12 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
 /// @title Router
 /// @notice This is the entry point for the end user wishing to send data across chains.
 /// @dev This contract is used as a router for both on-ramps and off-ramps
-contract Router is IRouter, IRouterClient, Ownable {
+contract Router is IRouter, IRouterClient, Ownable, ReentrancyGuard {
   using SafeERC20 for IERC20;
   using EnumerableSet for EnumerableSet.UintSet;
 
@@ -24,11 +26,13 @@ contract Router is IRouter, IRouterClient, Ownable {
   error InvalidRecipientAddress(address to);
   error OffRampMismatch(uint64 chainSelector, address offRamp);
   error BadARMSignal();
+  error TooManyTokens(address token, uint256 amount);
 
   event OnRampSet(uint64 indexed destChainSelector, address onRamp);
   event OffRampAdded(uint64 indexed sourceChainSelector, address offRamp);
   event OffRampRemoved(uint64 indexed sourceChainSelector, address offRamp);
   event MessageExecuted(bytes32 messageId, uint64 sourceChainSelector, address offRamp, bytes32 calldataHash);
+  
 
   struct OnRamp {
     uint64 destChainSelector;
@@ -40,14 +44,24 @@ contract Router is IRouter, IRouterClient, Ownable {
     address offRamp;
   }
 
+  struct TokenLimit {
+    uint256 amount;
+    uint256 updatedTimestamp;
+  }
+
   // DYNAMIC CONFIG
   address private s_wrappedNative;
   mapping(uint256 destChainSelector => address onRamp) private s_onRamps;
+
+  mapping(address token => TokenLimit limit) private s_tokenLimits;
+
+  mapping(address user => mapping(address token => TokenLimit limit)) private s_userTokenLimits;
   
   EnumerableSet.UintSet private s_chainSelectorAndOffRamps;
 
   constructor(address wrappedNative) Ownable(msg.sender) {
     s_wrappedNative = wrappedNative;
+    s_tokenLimits[wrappedNative] = TokenLimit({amount: 1 ether, updatedTimestamp: 1 days});
   }
 
   /// @inheritdoc IRouterClient
@@ -81,7 +95,8 @@ contract Router is IRouter, IRouterClient, Ownable {
   function evmSend(
     uint64 destinationChainSelector,
     Client.FromEVMMessage memory message
-  ) external payable whenHealthy returns (bytes32) {
+  ) external payable nonReentrant returns (bytes32) {
+  _rateLimit(message.tokenAmount.token, message.tokenAmount.amount, msg.sender);
     address onRamp = s_onRamps[destinationChainSelector];
     if (onRamp == address(0)) revert UnsupportedDestinationChain(destinationChainSelector);
     uint256 feeTokenAmount;
@@ -195,5 +210,22 @@ contract Router is IRouter, IRouterClient, Ownable {
 
   modifier whenHealthy() {
     _;
+  }
+
+  function _rateLimit(address token, uint256 amount, address sender) internal {
+    TokenLimit memory limitConfig = s_tokenLimits[token];
+
+    if (amount > limitConfig.amount) revert TooManyTokens(token, amount);
+
+    if (block.timestamp - s_userTokenLimits[sender][token].updatedTimestamp > limitConfig.updatedTimestamp) {
+      s_userTokenLimits[sender][token] = TokenLimit({amount: 0, updatedTimestamp: block.timestamp});
+    } else {
+      if (s_userTokenLimits[sender][token].amount + amount > limitConfig.amount) revert TooManyTokens(token, amount);
+      s_userTokenLimits[sender][token].amount += amount;
+    }
+  }
+
+  function setTokenLimit(address token, uint256 amount, uint256 updatedTimestamp) external onlyOwner {
+    s_tokenLimits[token] = TokenLimit({amount: amount, updatedTimestamp: updatedTimestamp});
   }
 }

@@ -24,12 +24,16 @@ contract DepolyScript is Script, Helper {
     OnRamp public onRamp;
     OffRamp public offRamp;
     PriceFeed public priceFeed;
+    uint64 public destChain = uint64(5003);
+
 
     uint256 public constant chainCount = 2;
 
     uint256 public constant blessDonCount = 4;
 
     uint256 public constant priceProvideCount = 4;
+
+    error InvalidChain();
 
 
     // ----------------------------
@@ -77,12 +81,12 @@ contract DepolyScript is Script, Helper {
         return priceFeed;
     }
 
-    function getWethTokenPool(address token_) public returns (TokenPool) {
+    function getWethTokenPool(address token_) public returns (LockReleaseTokenPool) {
         if (networkInfo[uint64(block.chainid)].wethTokenPool != address(0)) {
-            return TokenPool(networkInfo[uint64(block.chainid)].wethTokenPool);
+            return LockReleaseTokenPool(networkInfo[uint64(block.chainid)].wethTokenPool);
         }
-        TokenPool tokenPool = new LockReleaseTokenPool(IERC20(token_), new address[](0), true);
-        console2.log("tokenPool:", address(tokenPool));
+        LockReleaseTokenPool tokenPool = new LockReleaseTokenPool(IERC20(token_), new address[](0), true);
+        console2.log("wethTokenPool:", address(tokenPool));
         return tokenPool;
     }
 
@@ -91,10 +95,20 @@ contract DepolyScript is Script, Helper {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
 
+        address owner = vm.addr(deployerPrivateKey);
+
         // destChains
         uint64[] memory destChains = new uint64[](chainCount);
+        // destChains[0] = uint64(11155111);
+        destChains[1] = uint64(5003);
         destChains[0] = uint64(167008);
-        destChains[1] = uint64(11155111);
+
+
+        for (uint256 i = 0; i < chainCount; i++) {
+            if (destChains[i] == uint64(block.chainid)) {
+                revert InvalidChain();
+            }
+        }
 
         weth = getWeth();
         priceFeed = getPriceFeed();
@@ -104,16 +118,25 @@ contract DepolyScript is Script, Helper {
         console2.log("router:", address(router));
         evmClient = new EVMClient(router, address(0));
         console2.log("evmClient:", address(evmClient));
-        TokenPool tokenPool = getWethTokenPool(address(weth));
-        onRamp = new OnRamp(new Client.PoolUpdate[](0), address(priceFeed));
+        LockReleaseTokenPool tokenPool = getWethTokenPool(address(weth));
+        onRamp = new OnRamp(new Client.PoolUpdate[](0), address(priceFeed), address(router));
         console2.log("onRamp:", address(onRamp));
         offRamp = new OffRamp();
         console2.log("offRamp:", address(offRamp));
 
+
+        tokenPool.setRebalancer(address(owner));
+
+
         // Enabling the chains
         for (uint256 i = 0; i < chainCount; i++) {
-            evmClient.enableChain(destChains[i], bytes("test"));
+            onRamp.enableChain(destChains[i], true);
         }
+
+        onRamp.setTokenTransferFeeConfig(
+            address(weth),
+            0, 0, 1, 0
+        );
         // ----------------------------
 
         // Update the price feed
@@ -121,7 +144,7 @@ contract DepolyScript is Script, Helper {
         tokenPriceUpdates[0] = TokenPrice.TokenPriceUpdate(address(weth), 4000 ether);
         TokenPrice.GasPriceUpdate[] memory gasPriceUpdates = new TokenPrice.GasPriceUpdate[](chainCount);
         for (uint256 i = 0; i < chainCount; i++) {
-            gasPriceUpdates[i] = TokenPrice.GasPriceUpdate(destChains[i], 4000);
+            gasPriceUpdates[i] = TokenPrice.GasPriceUpdate(destChains[i], 4000 * 10 gwei);
         }
 
         TokenPrice.PriceUpdates memory priceUpdates = TokenPrice.PriceUpdates(
@@ -178,11 +201,12 @@ contract DepolyScript is Script, Helper {
 
     function run() public {
 
+
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
 
         address owner = vm.addr(deployerPrivateKey);
 
-        weth.deposit{value: 1 ether}();
+        weth.deposit{value:  1 wei}();
 
 
 
@@ -191,13 +215,13 @@ contract DepolyScript is Script, Helper {
         weth.approve(address(evmClient), 1 wei);
 
 
-        uint256 fee = evmClient.getFee(uint64(11155111), owner, amount);
+        uint256 fee = evmClient.getFee(destChain, owner, amount);
 
         console2.log("fee", fee);
 
 
 
-        bytes32 messageId = evmClient.sendToken{value: fee}(uint64(11155111), owner, amount);
+        bytes32 messageId = evmClient.sendToken{value: fee}(destChain, owner, amount);
 
         console2.log("messageId:");
         console2.logBytes32(messageId);

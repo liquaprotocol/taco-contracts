@@ -34,7 +34,7 @@ contract DepolyScript is Script {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
 
-        address owner = vm.addr(deployerPrivateKey);
+        // address owner = vm.addr(deployerPrivateKey);
 
 
         // get price

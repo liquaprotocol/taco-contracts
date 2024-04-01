@@ -50,10 +50,6 @@ contract DepolyScript is Script, Helper {
             return;
         }
 
-        // EVMClient Update
-        evmClient = EVMClient(payable(networkInfo[uint64(block.chainid)].evmClient));
-        evmClient.enableChain(newChainId, bytes("test"));
-
 
         // Price Feed Update
         priceFeed = PriceFeed(payable(networkInfo[uint64(block.chainid)].priceFeed));
@@ -78,6 +74,8 @@ contract DepolyScript is Script, Helper {
         onRamps[0] = Router.OnRamp(newChainId, address(onRamp));
         offRamps[0] = Router.OffRamp(newChainId, address(offRamp));
         router.applyRampUpdates(onRamps, new Router.OffRamp[](0), offRamps);
+
+        onRamp.enableChain(newChainId, true);
 
 
         // tokenPool Update

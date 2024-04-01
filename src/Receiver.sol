@@ -7,6 +7,7 @@ import {Client} from "./libraries/Client.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 abstract contract Receiver is IERC165 {
+  error InvalidRouter(address router);
   address internal i_ccipRouter;
 
   constructor(address router) {
@@ -15,10 +16,7 @@ abstract contract Receiver is IERC165 {
   }
 
   function supportsInterface(bytes4 interfaceId) public pure virtual override returns (bool) {
-    return interfaceId == type(IToEVMMessageReceiver).interfaceId || interfaceId == type(IERC165).interfaceId;
-  }
-
-  function evmReceive(Client.ToEVMMessage calldata message) external onlyRouter virtual override {
+    return  interfaceId == type(IERC165).interfaceId;
   }
 
   function getRouter() public view returns (address) {
@@ -28,8 +26,6 @@ abstract contract Receiver is IERC165 {
   function _setRouter(address router) internal {
     i_ccipRouter = router;
   }
-
-  error InvalidRouter(address router);
 
   modifier onlyRouter() {
     if (msg.sender != address(i_ccipRouter)) revert InvalidRouter(msg.sender);
