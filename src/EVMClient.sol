@@ -48,20 +48,20 @@ contract EVMClient is Receiver, Ownable {
     address receiver,
     Client.EVMTokenAmount memory tokenAmount
   ) external payable returns (bytes32) {
-    IERC20(tokenAmount.token).transferFrom(msg.sender, address(this), tokenAmount.amount);
-    IERC20(tokenAmount.token).approve(i_ccipRouter, tokenAmount.amount);
-    Client.FromEVMMessage memory message = Client.FromEVMMessage({
-      receiver: receiver,
-      data: abi.encode(msg.sender),
-      tokenAmount: tokenAmount,
-      feeToken: address(s_feeToken)
-    });
-    bytes32 messageId = IRouterClient(i_ccipRouter).evmSend{
-      value: msg.value
-    }(destChainSelector, message);
-    emit MessageSent(messageId);
+    // IERC20(tokenAmount.token).transferFrom(msg.sender, address(this), tokenAmount.amount);
+    // IERC20(tokenAmount.token).approve(i_ccipRouter, tokenAmount.amount);
+    // Client.FromEVMMessage memory message = Client.FromEVMMessage({
+    //   receiver: receiver,
+    //   data: abi.encode(msg.sender),
+    //   tokenAmount: tokenAmount,
+    //   feeToken: address(s_feeToken)
+    // });
+    // bytes32 messageId = IRouterClient(i_ccipRouter).evmSend{
+    //   value: msg.value
+    // }(destChainSelector, message);
+    // emit MessageSent(messageId);
 
-    return messageId;
+    // return messageId;
   }
 
   function setRouter(address router) external onlyOwner {
