@@ -9,3 +9,4 @@ libs = ["lib"]
 taiko = "${TAIKO_RPC_URL}"
 holesky = "${HOLESKY_RPC_URL}"
 sepolia = "https://rpc.sepolia.org"	
+mantle = "https://rpc.sepolia.mantle.xyz"
