@@ -23,6 +23,8 @@ import {PriceFeed} from "../src/PriceFeed.sol";
 
 import {TokenPrice} from "../src/libraries/TokenPrice.sol";
 
+import {RateLimiter} from "../src/libraries/RateLimiter.sol";
+
 contract CrossBridgeTest is Test {
     Router public router;
     WETH9 public weth;
@@ -30,6 +32,7 @@ contract CrossBridgeTest is Test {
     OnRamp public onRamp;
     OffRamp public offRamp;
     PriceFeed public priceFeed;
+    LockReleaseTokenPool public tokenPool;
 
     uint256 public constant chainCount = 1;
 
@@ -83,7 +86,7 @@ contract CrossBridgeTest is Test {
         TokenPrice.TokenPriceUpdate[] memory tokenPriceUpdates = new TokenPrice.TokenPriceUpdate[](1);
         tokenPriceUpdates[0] = TokenPrice.TokenPriceUpdate(address(weth), 5000 ether);
         TokenPrice.GasPriceUpdate[] memory gasPriceUpdates = new TokenPrice.GasPriceUpdate[](1);
-        gasPriceUpdates[0] = TokenPrice.GasPriceUpdate(destChains[0], (5000 ether) * 10 gwei );
+        gasPriceUpdates[0] = TokenPrice.GasPriceUpdate(destChains[0], 5000 * 10 gwei );
 
 
         TokenPrice.PriceUpdates memory priceUpdates = TokenPrice.PriceUpdates(
@@ -97,20 +100,27 @@ contract CrossBridgeTest is Test {
         // Deploying the contracts
         router = new Router(address(weth));
         evmClient = new EVMClient(router, address(0));
-        TokenPool tokenPool = new LockReleaseTokenPool(IERC20(weth), allowlist, true);
-        onRamp = new OnRamp(new Client.PoolUpdate[](0), address(priceFeed));
+        tokenPool = new LockReleaseTokenPool(IERC20(weth), allowlist, true);
+        onRamp = new OnRamp(new Client.PoolUpdate[](0), address(priceFeed), address(router));
         offRamp = new OffRamp();
 
 
         // depositing the weth
         weth.deposit{value: 10 ether}();
 
+        tokenPool.setRebalancer(address(owner));
+
 
 
         // Enabling the chains
         for (uint256 i = 0; i < chainCount; i++) {
-            evmClient.enableChain(destChains[i], bytes("test"));
+            onRamp.enableChain(destChains[i], true);
         }
+
+        onRamp.setTokenTransferFeeConfig(
+            address(weth),
+            0, 0, 1, 0
+        );
         // ----------------------------
 
 
@@ -158,7 +168,7 @@ contract CrossBridgeTest is Test {
 
     }
 
-    function test_normal() public {
+    function test_pass() public {
 
         uint256 balance = weth.balanceOf(owner);
         assert(balance == 10 ether);
@@ -170,18 +180,11 @@ contract CrossBridgeTest is Test {
 
         uint256 fee = evmClient.getFee(uint64(block.chainid), owner, amount);
 
-        console.log("fee", fee);
-
-
-
         bytes32 messageId = evmClient.sendToken{value: fee}(uint64(block.chainid), owner, amount);
-
-        console.log("messageId:");
-        console.logBytes32(messageId);
-
 
         assert(weth.balanceOf(owner) == 9 ether);
 
+        assert(weth.balanceOf(address(tokenPool)) == 1 ether);
 
         Client.EVM2EVMMessage memory message = Client.EVM2EVMMessage(
             uint64(block.chainid),
@@ -195,28 +198,194 @@ contract CrossBridgeTest is Test {
         );
 
         offRamp.executeSingleMessage(message, new bytes(0));
-
-        
-
-        
-        // vm.expectEmit(address(onRamp));
-        // emit SendRequested(
-        //     messageId,
-        //     uint64(block.chainid),
-        //     owner,
-        //     owner,
-        //     0,
-        //     address(0),
-        //     0,
-        //     address(weth),
-        //     1 ether
-        // );
-
-
         assert(weth.balanceOf(owner) == 10 ether);
+    }
 
-        // counter.increment();
-        // assertEq(counter.number(), 1);
+    function test_multiple_send() public {
+
+        Client.EVMTokenAmount memory amount = Client.EVMTokenAmount(address(weth), 0.1 ether);
+
+        weth.approve(address(evmClient), 10 ether);
+
+
+        uint256 fee = evmClient.getFee(uint64(block.chainid), owner, amount);
+
+        bytes32 messageId = evmClient.sendToken{value: fee}(uint64(block.chainid), owner, amount);
+
+        bytes32 messageId2 = evmClient.sendToken{value: fee}(uint64(block.chainid), owner, amount);
+
+        assert(messageId != messageId2);
+    }
+
+    function test_different_fee() public {
+
+        Client.EVMTokenAmount memory amount = Client.EVMTokenAmount(address(weth), 1 ether);
+
+        weth.approve(address(evmClient), 10 ether);
+
+
+        uint256 fee = evmClient.getFee(uint64(block.chainid), owner, amount);
+
+        Client.EVMTokenAmount memory amount2 = Client.EVMTokenAmount(address(weth), 2 ether);
+
+        uint256 fee2 = evmClient.getFee(uint64(block.chainid), owner, amount2);
+
+        assert(fee2 > fee);
+    }
+
+    function test_invalid_chain() public {
+        Client.EVMTokenAmount memory amount = Client.EVMTokenAmount(address(weth), 1 ether);
+
+        weth.approve(address(evmClient), 10 ether);
+
+
+        uint256 fee = evmClient.getFee(uint64(block.chainid), owner, amount);
+
+
+        vm.expectRevert();
+        evmClient.sendToken{value: fee}(uint64(1010101), owner, amount);
+    }
+
+    function test_rate_limit() public {
+        uint64 remoteChainSelector = uint64(block.chainid);
+
+        weth.approve(address(evmClient), 10 ether);
+
+
+        RateLimiter.Config memory boundConfig = RateLimiter.Config(true, 0.4 ether , 1 gwei);
+
+
+        tokenPool.setChainRateLimiterConfig(remoteChainSelector, boundConfig, boundConfig);
+
+        Client.EVMTokenAmount memory amount = Client.EVMTokenAmount(address(weth), 0.5 ether);
+
+        uint256 fee = evmClient.getFee(remoteChainSelector, owner, amount);
+
+        vm.warp(block.timestamp + 1);
+
+        vm.expectRevert();
+        evmClient.sendToken{value: fee}(remoteChainSelector, owner, amount);
+    
+    }
+
+    function test_rate_limit_pass() public {
+        uint64 remoteChainSelector = uint64(block.chainid);
+
+        weth.approve(address(evmClient), 10 ether);
+
+
+        RateLimiter.Config memory boundConfig = RateLimiter.Config(true, 1 ether , 1 gwei);
+
+
+        tokenPool.setChainRateLimiterConfig(remoteChainSelector, boundConfig, boundConfig);
+
+        vm.warp(block.timestamp + 1);
+
+        Client.EVMTokenAmount memory amount = Client.EVMTokenAmount(address(weth), 1 gwei);
+
+        uint256 fee = evmClient.getFee(remoteChainSelector, owner, amount);
+
+        evmClient.sendToken{value: fee}(remoteChainSelector, owner, amount);
+    
+    }
+
+    function test_withdraw() public {
+        uint256 balance = weth.balanceOf(owner);
+        assert(balance == 10 ether);
+
+        Client.EVMTokenAmount memory amount = Client.EVMTokenAmount(address(weth), 1 ether);
+
+        weth.approve(address(evmClient), 1 ether);
+
+
+        uint256 fee = evmClient.getFee(uint64(block.chainid), owner, amount);
+
+        evmClient.sendToken{value: fee}(uint64(block.chainid), owner, amount);
+
+        assert(weth.balanceOf(address(tokenPool)) == 1 ether);
+
+        vm.startPrank(0xdD870fA1b7C4700F2BD7f44238821C26f7392148);
+
+        vm.expectRevert();
+        tokenPool.withdrawLiquidity(1 ether);
+
+        vm.startPrank(owner);
+
+         tokenPool.withdrawLiquidity(1 ether);
+
+        assert(weth.balanceOf(address(tokenPool)) == 0);
+        assert(weth.balanceOf(owner) == 10 ether);
+    }
+
+    function test_gas_fee_withdraw() public {
+        uint256 balance = weth.balanceOf(owner);
+        assert(balance == 10 ether);
+
+        Client.EVMTokenAmount memory amount = Client.EVMTokenAmount(address(weth), 1 ether);
+
+        weth.approve(address(evmClient), 1 ether);
+        
+        uint256 fee = evmClient.getFee(uint64(block.chainid), owner, amount);
+
+        evmClient.sendToken{value: fee}(uint64(block.chainid), owner, amount);
+
+        // console.log("onRamp balance:", weth.balanceOf(address(onRamp)));
+
+        onRamp.withdrawToken(address(weth), owner, fee);
+
+        // console.log("onRamp balance:", weth.balanceOf(address(onRamp)));
+
+        assert(weth.balanceOf(address(onRamp)) == 0);
+
+        assert(weth.balanceOf(owner) == 9 ether + fee);
+    }
+
+    function test_gas_fee_withdraw_fail() public {
+        uint256 balance = weth.balanceOf(owner);
+        assert(balance == 10 ether);
+
+        Client.EVMTokenAmount memory amount = Client.EVMTokenAmount(address(weth), 1 ether);
+
+        weth.approve(address(evmClient), 1 ether);
+        
+        uint256 fee = evmClient.getFee(uint64(block.chainid), owner, amount);
+
+        evmClient.sendToken{value: fee}(uint64(block.chainid), owner, amount);
+
+        // console.log("onRamp balance:", weth.balanceOf(address(onRamp)));
+
+        vm.startPrank(0xdD870fA1b7C4700F2BD7f44238821C26f7392148);
+
+        vm.expectRevert();
+        onRamp.withdrawToken(address(weth), owner, fee);
+
+        // console.log("onRamp balance:", weth.balanceOf(address(onRamp));
+
+        assert(weth.balanceOf(address(onRamp)) == fee);
+
+        assert(weth.balanceOf(owner) == 9 ether);
+    }
+
+    function test_gas_fee_enough() public {
+
+    }
+
+    function test_personal_rate_limit() public {
+        weth.approve(address(evmClient), 10 ether);
+
+
+        Client.EVMTokenAmount memory amount = Client.EVMTokenAmount(address(weth), 1.1 ether);
+        uint256 fee = evmClient.getFee(uint64(block.chainid), owner, amount);
+
+        vm.expectRevert();
+        evmClient.sendToken{value: fee}(uint64(block.chainid), owner, amount);
+
+
+        Client.EVMTokenAmount memory amount2 = Client.EVMTokenAmount(address(weth), 1 ether);
+        uint256 fee2 = evmClient.getFee(uint64(block.chainid), owner, amount);
+
+        evmClient.sendToken{value: fee2}(uint64(block.chainid), owner, amount2);
+
     }
 
 }
