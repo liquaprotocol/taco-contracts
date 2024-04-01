@@ -62,6 +62,8 @@ forge build
 3. Run Tests
 ```shell
 $ forge test
+$ forge clean && forge build && forge script script/Action.s.sol --rpc-url mantle --broadcast --skip-simulation -vvvv
+$ forge clean && forge build && forge script script/Action.s.sol --rpc-url mantle --skip-simulation -vvvv
 ```
 
 4. Format Code
@@ -77,6 +79,7 @@ $ forge snapshot
 6. Deploy Contracts
 ```shell
 $ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
+
 ```
 
 7. Use Anvil
@@ -103,6 +106,5 @@ $ cast --help
 ## 📜 License
 
 **TBC**
-
 
 

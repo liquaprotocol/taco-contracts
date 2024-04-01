@@ -10,7 +10,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableMapAddresses} from "./libraries/EnumerableMapAddresses.sol";
 
-contract OffRamp is IOffRamp, Ownable {
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+
+contract OffRamp is IOffRamp, Ownable, Pausable {
     using EnumerableMapAddresses for EnumerableMapAddresses.AddressToAddressMap;
 
     event PoolAdded(address indexed token, address indexed pool);
@@ -36,7 +38,7 @@ contract OffRamp is IOffRamp, Ownable {
 
   mapping(bytes32 => bool) public processedMessages;
 
-    constructor() Ownable(msg.sender) {}
+    constructor() Ownable(msg.sender) Pausable() {}
 
     function getSenderNonce(address sender)
         external
@@ -44,16 +46,14 @@ contract OffRamp is IOffRamp, Ownable {
         override
         returns (uint64 nonce)
     {
-        uint256 senderNonce = s_senderNonce[sender];
-
-        return uint64(senderNonce);
+        return uint64(s_senderNonce[sender]);
 
     }
 
     function executeSingleMessage(
         Client.EVM2EVMMessage memory message,
         bytes memory offchainTokenData
-    ) external OnlyBlessDones {
+    ) external OnlyBlessDones whenNotPaused {
 
         if (processedMessages[message.messageId]) revert MessageIdAlreadyProcessed();
         
@@ -65,18 +65,7 @@ contract OffRamp is IOffRamp, Ownable {
             );
 
         processedMessages[message.messageId] = true;
-    }
 
-    function getSupportedTokens()
-        external
-        view
-        returns (IERC20[] memory sourceTokens)
-    {
-        sourceTokens = new IERC20[](s_poolsBySourceToken.length());
-        for (uint256 i = 0; i < sourceTokens.length; ++i) {
-            (address token, ) = s_poolsBySourceToken.at(i);
-            sourceTokens[i] = IERC20(token);
-        }
     }
 
     function getPoolBySourceToken(
@@ -168,6 +157,14 @@ contract OffRamp is IOffRamp, Ownable {
 
 
         return sourceTokenAmount;
+    }
+
+    function pause() external whenNotPaused onlyOwner {
+        _pause();
+    }
+
+    function unpause() external whenPaused onlyOwner {
+        _unpause();
     }
 
     modifier OnlyBlessDones() {
