@@ -8,5 +8,10 @@ libs = ["lib"]
 [rpc_endpoints]
 taiko = "${TAIKO_RPC_URL}"
 holesky = "${HOLESKY_RPC_URL}"
-sepolia = "https://rpc.sepolia.org"	
-mantle = "https://rpc.sepolia.mantle.xyz"
+sepolia = "${SEPOLIA_RPC_URL}"	
+sepoliaMantle = "${SEPOLIA_MANTLE_RPC_URL}"
+
+# mainnet
+arb = "${ARBITRUM_RPC_URL}"
+optimism = "${OPTIMISM_RPC_URL}"
+mantle = "${MANTLE_RPC_URL}"

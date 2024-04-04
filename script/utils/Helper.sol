@@ -48,5 +48,36 @@ contract Helper {
             onRamp: 0xdd3aAe0E5dfd45Afad690a25AD7c17496c673A40,
             offRamp: 0xa40F47bF1D7061E4c46a4502a5507B4350bbb808
         });
+
+        networkInfo[42161] = TacoNetworkInfo({
+            chainId: 42161,
+            weth: 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1,
+            priceFeed: address(0),
+            router: address(0),
+            evmClient: address(0),
+            wethTokenPool: address(0),
+            onRamp: address(0),
+            offRamp: address(0)
+        });
+        networkInfo[5000] = TacoNetworkInfo({
+            chainId: 5000,
+            weth: 0xdEAddEaDdeadDEadDEADDEAddEADDEAddead1111,
+            priceFeed: 0xD7b639f5a3811519007c9e389A479f90B87a06D9,
+            router: 0x260E2F070026e81d65548a15acFd6Fc9FDDE1C0a,
+            evmClient: 0x663D68e8ab26d70044e43B6210d48ecC02654baE,
+            wethTokenPool: 0xA5e223511edf8286214b52F2E0Bd4E5Ce925fb31,
+            onRamp: 0x4B789C88dcD5D2BB449f09300785bDEFc8E14608,
+            offRamp: 0xd2Fe290a4c75D9EB3bfFA83c4fe3cDd5ddbD88d7
+        });
+        networkInfo[10] = TacoNetworkInfo({
+            chainId: 10,
+            weth: 0x4200000000000000000000000000000000000006,
+            priceFeed: 0x663D68e8ab26d70044e43B6210d48ecC02654baE,
+            router: 0xA5e223511edf8286214b52F2E0Bd4E5Ce925fb31,
+            evmClient: 0x4B789C88dcD5D2BB449f09300785bDEFc8E14608,
+            wethTokenPool: 0xd2Fe290a4c75D9EB3bfFA83c4fe3cDd5ddbD88d7,
+            onRamp: 0xbcF8E08C62Ed1f8E965054DB492D44aedac9A49B,
+            offRamp: 0x50c2b297EA06fE633926Db5FBc724Fce823Aef06
+        });
     }
 }
